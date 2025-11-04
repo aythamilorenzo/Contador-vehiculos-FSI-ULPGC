@@ -60,7 +60,7 @@ def extraer_fondo(video):
     cv2.destroyAllWindows()
 
 
-def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh):
+def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, max_lost):
     # Cargar fondo y convertir a escala de grises
     fondo = cv2.imread(background)
     fondo_gray = cv2.cvtColor(fondo, cv2.COLOR_BGR2GRAY)
@@ -84,21 +84,31 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh):
         blur = cv2.GaussianBlur(diff, (5, 5), 0)
         
         # Umbralizamos: todo lo diferente al fondo se vuelve blanco
-        _, umbralizado = cv2.threshold(blur, 42, 255, cv2.THRESH_BINARY)
+        # Umbralizado estableciendo el umbral manualmente:
+            # _, umbralizado = cv2.threshold(blur, 42, 255, cv2.THRESH_BINARY)
         # También puedes probar threshold adaptativo si la luz cambia mucho:
-        # thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        #                                cv2.THRESH_BINARY, 11, 2)
+        
+        # Esto elige automáticamente el mejor umbral según el histograma del frame:
+        _, umbralizado = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # Operaciones morfológicas para limpiar ruido
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+
+        # Operaciones morfológicas para limpiar ruido    
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)) 
+        # Crea una máscara 7 x 7 que se mueve por toda la imagen binaria y analiza como son los 
+        # píxeles en esa region 7 x 7
         
         # Dilatar para rellenar huecos
         dilatado = cv2.dilate(umbralizado, kernel, iterations=2)
+        # Se miran los pixeles a 1 y se ve si estos están rodeados de 1 o 0,
+        # en dilatación si el píxel permanece a 1 si al menos uno de los que le rodea
+        # está a 1 (255), en erosión es lo contrario.
         
-         # Cerrar para unir regiones cercanas
+         # Cerrar para unir regiones cercanas, dilatación -> erosión, primero expande
+         # para cerrar regiones cercanas y luego erosiona para volver al tamaño original.
         cerrado = cv2.morphologyEx(dilatado, cv2.MORPH_CLOSE, kernel, iterations=2)
         
-        # Abrir para eliminar ruido suelto
+        # Abrir para eliminar ruido suelto, erosión -> dilatación, primero erosiona y limpia
+        # ruido pequeño y luego dilata para agrandar los objetos que quedaron.
         umbralizado = cv2.morphologyEx(cerrado, cv2.MORPH_OPEN, kernel, iterations=1)
         
     
@@ -144,20 +154,29 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh):
                 if not match.contado and match.tracked_frames >= frames_thresh:
                     total_contados += 1
                     match.contado = True
+                    
+                cv2.putText(frame, f"id: {match.id}", (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+                
             else:
                 id_counter += 1
                 vehiculo = Vehiculo(id_counter, x, y, w, h)
                 vehiculos.append(vehiculo)
                 vistos.add(vehiculo)
+                
+                cv2.putText(frame, f"id: {vehiculo.id}", (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
         for vehiculo in vehiculos:
             if vehiculo not in vistos:
                 vehiculo.lost_frames += 1
-        vehiculos = [v for v in vehiculos if v.lost_frames <= frames_thresh]
+        vehiculos = [v for v in vehiculos if v.lost_frames <= max_lost]
         
-        # Para contar un vehículo, seguirlo 10 frames y a partir de ahí, considerarlo vehículo.
-        # Max_area.
-        # Escoger la distancia mínima para hacer match de coches, no la primera.
+        
+        # Implementar algo para la fusion de blops
+        # Implementar logica para que los coches que parpadean no reciban otra id distinta
+        
         
 
         total_vehiculos = len(vehiculos)
@@ -184,7 +203,7 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh):
 
 def main():
     # extraer_fondo("App/trafico01.mp4")
-    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500, 50, 10)
+    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500, 50, 10, 10)
     
 
 if __name__ == '__main__':
