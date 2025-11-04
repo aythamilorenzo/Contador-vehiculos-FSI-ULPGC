@@ -12,6 +12,8 @@ class Vehiculo:
         self.h = h
         self.centroid = (int(x + w / 2), int(y + h / 2))
         self.lost_frames = 0  # Para manejar desapariciones
+        self.tracked_frames = 1 # Contar los frames en los que se ha visto
+        self.contado = False # Para evitar duplicados
 
     def actualizar(self, x, y, w, h):
         self.x = x
@@ -20,6 +22,8 @@ class Vehiculo:
         self.h = h
         self.centroid = (int(x + w / 2), int(y + h / 2))
         self.lost_frames = 0
+        self.tracked_frames += 1
+
 
 
 def distancia(p1, p2):
@@ -56,16 +60,15 @@ def extraer_fondo(video):
     cv2.destroyAllWindows()
 
 
-def detectar_vehiculos(video, background, min_area):
+def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh):
     # Cargar fondo y convertir a escala de grises
     fondo = cv2.imread(background)
     fondo_gray = cv2.cvtColor(fondo, cv2.COLOR_BGR2GRAY)
     
     cap = cv2.VideoCapture(video)
-    vehiculos = [] # Lista para almacenar los objetos de la casa público
+    vehiculos = [] # Lista para almacenar los objetos de la clase Vehículo
     id_counter = 0
-    cv2.namedWindow("Detección de coches", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Detección de coches", 960, 540)
+    total_contados = 0
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -125,21 +128,32 @@ def detectar_vehiculos(video, background, min_area):
                 blobs.append((x, y, w, h))                
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)                
                 
+        vistos = set()
         for (x, y, w, h) in blobs:
-            nuevo_centro = (int(x + w / 2), int(y + h / 2))
+            centro = (int(x + w / 2), int(y + h / 2))
+            min_d = float('inf')
             match = None
-            
             for vehiculo in vehiculos:
-                if distancia(vehiculo.centroid, nuevo_centro) < 50:
+                d = distancia(vehiculo.centroid, centro)
+                if d < min_d and d < dist_thresh:
+                    min_d = d
                     match = vehiculo
-                    break 
-
             if match:
                 match.actualizar(x, y, w, h)
+                vistos.add(match)
+                if not match.contado and match.tracked_frames >= frames_thresh:
+                    total_contados += 1
+                    match.contado = True
             else:
                 id_counter += 1
-                nuevo = Vehiculo(id_counter, x, y, w, h)
-                vehiculos.append(nuevo)
+                vehiculo = Vehiculo(id_counter, x, y, w, h)
+                vehiculos.append(vehiculo)
+                vistos.add(vehiculo)
+
+        for vehiculo in vehiculos:
+            if vehiculo not in vistos:
+                vehiculo.lost_frames += 1
+        vehiculos = [v for v in vehiculos if v.lost_frames <= frames_thresh]
         
         # Para contar un vehículo, seguirlo 10 frames y a partir de ahí, considerarlo vehículo.
         # Max_area.
@@ -147,12 +161,19 @@ def detectar_vehiculos(video, background, min_area):
         
 
         total_vehiculos = len(vehiculos)
-        cv2.putText(frame, f"Numero de vehiculos: {total_vehiculos}", (30, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)                            
+        cv2.putText(frame, f"Vehiculos activos: {len(vehiculos)}", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(frame, f"Vehiculos contados: {total_contados}", (20, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)    
+
+                        
         
         # Mostrar resultado
-        cv2.imshow("Detección de coches", umbralizado)
-        cv2.imshow("Blops marcados", frame)
+        umbral_resized = cv2.resize(umbralizado, (1280, 720))
+        frame_resized = cv2.resize(frame, (1280, 720))
+
+        cv2.imshow("Detección de coches", umbral_resized)
+        cv2.imshow("Blops marcados", frame_resized)
         
         # Salir con 'q'
         if cv2.waitKey(30) & 0xFF == ord('q'):
@@ -163,7 +184,7 @@ def detectar_vehiculos(video, background, min_area):
 
 def main():
     # extraer_fondo("App/trafico01.mp4")
-    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500)
+    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500, 50, 10)
     
 
 if __name__ == '__main__':
