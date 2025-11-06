@@ -14,6 +14,7 @@ class Vehiculo:
         self.lost_frames = 0  # Para manejar desapariciones
         self.tracked_frames = 1 # Contar los frames en los que se ha visto
         self.contado = False # Para evitar duplicados
+        
 
     def actualizar(self, x, y, w, h):
         self.x = x
@@ -69,6 +70,8 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
     vehiculos = [] # Lista para almacenar los objetos de la clase Vehículo
     id_counter = 0
     total_contados = 0
+
+        
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -111,7 +114,7 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
         # ruido pequeño y luego dilata para agrandar los objetos que quedaron.
         umbralizado = cv2.morphologyEx(cerrado, cv2.MORPH_OPEN, kernel, iterations=1)
         
-    
+
         
         mask = np.zeros_like(umbralizado, dtype=np.uint8)
 
@@ -127,7 +130,7 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
         # frame_masked = cv2.bitwise_and(frame, frame, mask=mask)
         # cv2.imshow("ROI", frame_masked)
         
-
+        
         contornos, _ = cv2.findContours(umbralizado, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         blobs = []
         
@@ -139,11 +142,14 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)                
                 
         vistos = set()
+        usados = set()   ### <- NUEVO: vehículos ya emparejados este frame        
         for (x, y, w, h) in blobs:
             centro = (int(x + w / 2), int(y + h / 2))
             min_d = float('inf')
             match = None
             for vehiculo in vehiculos:
+                if vehiculo in usados:
+                    continue
                 d = distancia(vehiculo.centroid, centro)
                 if d < min_d and d < dist_thresh:
                     min_d = d
@@ -151,6 +157,7 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
             if match:
                 match.actualizar(x, y, w, h)
                 vistos.add(match)
+                usados.add(match)   ### <- NUEVO: marcar como usado
                 if not match.contado and match.tracked_frames >= frames_thresh:
                     total_contados += 1
                     match.contado = True
@@ -203,7 +210,7 @@ def detectar_vehiculos(video, background, min_area, dist_thresh, frames_thresh, 
 
 def main():
     # extraer_fondo("App/trafico01.mp4")
-    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500, 50, 10, 10)
+    detectar_vehiculos('App/trafico01.mp4', 'background.jpg', 500, 75, 10, 15)
     
 
 if __name__ == '__main__':
